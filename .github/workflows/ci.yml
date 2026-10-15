@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:          # every PR, and every push to a PR
+  push:
+    branches: [main]     # every merge to main
+
+permissions:
+  contents: read         # the run's GitHub token may only read the code
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dev tools (pinned, with hashes)
+        run: pip install --require-hashes -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q

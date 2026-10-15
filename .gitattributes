@@ -1,0 +1,5 @@
+# Store and check out text files with LF (Linux line endings), on every OS
+* text=auto eol=lf
+# Windows-only scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
