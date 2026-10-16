@@ -1,5 +1,9 @@
 """Build MongoDB aggregation pipelines from simple choices. No database needed."""
 
+import json
+from pprint import pformat
+
+from query import condition
 from schema import RELATIONS, SCHEMA
 
 
@@ -130,3 +134,59 @@ def fields_after_group(available: dict[str, str], by: str | None, metrics: list)
     for op, field in metrics:
         out[metric_name(op, field)] = "int" if op == "count" else "float"
     return out
+
+
+def match_stage(available: dict[str, str], rows: list[tuple[str, str, str]], match: str) -> dict | None:
+    """Filter rows -> {"$match": ...}, using field types after the joins. None if no rows."""
+    parts = []
+    for field, op, value in rows:
+        f = field.strip()
+        if f not in available:
+            raise ValueError(f"can't filter on '{f}': no such field")
+        parts.append(condition(f, op, value, available[f]))
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return {"$match": parts[0]}
+    return {"$match": {"$and" if match == "all" else "$or": parts}}
+
+
+def build_pipeline(
+    collection: str,
+    joins: list[str] | None = None,
+    rows: list[tuple[str, str, str]] | None = None,
+    match: str = "all",
+    group_by: str | None = None,
+    metrics: list[tuple[str, str | None]] | None = None,
+    sort: list[tuple[str, str]] | None = None,
+    limit: int | None = None,
+    project: list[str] | None = None,
+) -> list[dict]:
+    """All choices -> stages in this order: joins, $match, $group, $sort, $limit, $project."""
+    joins = joins or []
+    stages = join_stages(collection, joins)
+    available = fields_after_joins(collection, joins)
+
+    m = match_stage(available, rows or [], match)
+    if m:
+        stages.append(m)
+    if metrics:
+        stages.append(group_stage(available, group_by, metrics))
+        available = fields_after_group(available, group_by, metrics)
+    elif group_by:
+        raise ValueError("grouping needs at least one summary, e.g. count")
+    if sort:
+        stages.append(sort_stage(available, sort))
+    if limit is not None:
+        stages.append(limit_stage(limit))
+    if project:
+        stages.append(project_stage(available, project))
+    return stages
+
+
+def to_mongosh_pipeline(stages: list[dict], collection: str) -> str:
+    return f"db.{collection}.aggregate({json.dumps(stages, indent=2)})"
+
+
+def to_pymongo_pipeline(stages: list[dict], collection: str) -> str:
+    return f"db.{collection}.aggregate(\n{pformat(stages, sort_dicts=False)}\n)"
