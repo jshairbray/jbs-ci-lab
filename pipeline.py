@@ -55,3 +55,34 @@ def join_stages(collection: str, joins: list[str]) -> list[dict]:
         # $lookup always returns a list; $unwind turns the one match into a plain sub-document
         stages.append({"$unwind": {"path": f"${alias}", "preserveNullAndEmptyArrays": True}})
     return stages
+
+
+def sort_stage(available: dict[str, str], sort: list[tuple[str, str]]) -> dict:
+    """[("pe_ratio", "desc")] -> {"$sort": {"pe_ratio": -1}}. First field sorts first."""
+    spec = {}
+    for field, direction in sort:
+        if field not in available:
+            raise ValueError(f"can't sort by '{field}': no such field")
+        if direction not in ("asc", "desc"):
+            raise ValueError(f"sort direction must be asc or desc, not '{direction}'")
+        spec[field] = 1 if direction == "asc" else -1
+    return {"$sort": spec}
+
+
+def limit_stage(n: int) -> dict:
+    """Keep only the first n documents (1 to 1000)."""
+    if not 1 <= n <= 1000:
+        raise ValueError("limit must be between 1 and 1000")
+    return {"$limit": n}
+
+
+def project_stage(available: dict[str, str], keep: list[str]) -> dict:
+    """Show only these fields. _id is hidden unless you pick it."""
+    if not keep:
+        raise ValueError("pick at least one field to show")
+    spec = {} if "_id" in keep else {"_id": 0}
+    for field in keep:
+        if field not in available:
+            raise ValueError(f"can't show '{field}': no such field")
+        spec[field] = 1
+    return {"$project": spec}
