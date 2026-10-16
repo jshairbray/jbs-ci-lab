@@ -86,3 +86,47 @@ def project_stage(available: dict[str, str], keep: list[str]) -> dict:
             raise ValueError(f"can't show '{field}': no such field")
         spec[field] = 1
     return {"$project": spec}
+
+
+GROUP_OPS = ("count", "avg", "sum", "min", "max")
+
+
+def metric_name(op: str, field: str | None) -> str:
+    """("avg", "pe_ratio") -> "avg_pe_ratio"; ("count", None) -> "count"."""
+    return "count" if op == "count" else f"{op}_{field.replace('.', '_')}"
+
+
+def group_stage(
+    available: dict[str, str], by: str | None, metrics: list[tuple[str, str | None]]
+) -> dict:
+    """Group documents and summarize each group.
+
+    by="sector.name", metrics=[("avg", "pe_ratio"), ("count", None)] ->
+    {"$group": {"_id": "$sector.name", "avg_pe_ratio": {"$avg": "$pe_ratio"}, "count": {"$sum": 1}}}
+    by=None puts every document in one group.
+    """
+    if by is not None and by not in available:
+        raise ValueError(f"can't group by '{by}': no such field")
+    if not metrics:
+        raise ValueError("pick at least one summary, e.g. count")
+    spec: dict = {"_id": f"${by}" if by else None}
+    for op, field in metrics:
+        if op not in GROUP_OPS:
+            raise ValueError(f"unknown summary: {op}")
+        if op == "count":
+            spec["count"] = {"$sum": 1}
+            continue
+        if field not in available:
+            raise ValueError(f"can't {op} '{field}': no such field")
+        if available[field] not in ("int", "float"):
+            raise ValueError(f"{op} needs a number field; {field} is {available[field]}")
+        spec[metric_name(op, field)] = {f"${op}": f"${field}"}
+    return {"$group": spec}
+
+
+def fields_after_group(available: dict[str, str], by: str | None, metrics: list) -> dict[str, str]:
+    """After $group only the group key (_id) and the summaries exist. Sort and show use these."""
+    out = {"_id": available.get(by, "null") if by else "null"}
+    for op, field in metrics:
+        out[metric_name(op, field)] = "int" if op == "count" else "float"
+    return out
