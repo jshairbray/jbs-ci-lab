@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dev tools (pinned, with hashes)
-        run: pip install --require-hashes -r requirements-dev.txt
+        run: pip install --require-hashes -r requirements.txt -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Test
