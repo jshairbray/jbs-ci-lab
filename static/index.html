@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mongo query builder</title>
+<style>
+  :root {
+    --paper: #eef1f4;
+    --card: #ffffff;
+    --ink: #1d2733;
+    --muted: #5b6875;
+    --line: #c9d1d9;
+    --accent: #0f6e6a;
+    --error: #b42318;
+    --code-bg: #1d2733;
+    --code-ink: #e6edf3;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #151b22;
+      --card: #1d252e;
+      --ink: #e6edf3;
+      --muted: #9aa7b4;
+      --line: #34404c;
+      --accent: #4fc3b8;
+      --error: #ff8a80;
+      --code-bg: #0d1217;
+      --code-ink: #e6edf3;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 1.5rem; color: var(--muted); }
+
+  /* The query reads as a sentence: this is the one bold element */
+  .sentence {
+    font-size: 1.6rem;
+    line-height: 1.6;
+    font-weight: 500;
+    margin: 0 0 1.25rem;
+  }
+  .sentence select {
+    font: inherit;
+    color: var(--accent);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid var(--accent);
+    padding: 0 0.15rem;
+    cursor: pointer;
+  }
+
+  .rows { display: grid; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1.3fr auto;
+    gap: 0.5rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.5rem;
+  }
+  .row select, .row input {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.35rem 0.5rem;
+    min-width: 0;
+  }
+  .row .kind { font-size: 0.8rem; color: var(--muted); grid-column: 1 / -1; margin-top: -0.2rem; }
+  button {
+    font: inherit;
+    border-radius: 4px;
+    padding: 0.35rem 0.8rem;
+    cursor: pointer;
+  }
+  .remove { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .add { background: transparent; border: 1px dashed var(--accent); color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .error { color: var(--error); min-height: 1.5rem; margin: 0.75rem 0; }
+
+  .output { margin-top: 1rem; }
+  .tabs { display: flex; gap: 0.25rem; align-items: end; }
+  .tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: 4px 4px 0 0;
+    color: var(--muted);
+  }
+  .tab[aria-selected="true"] { background: var(--code-bg); color: var(--code-ink); }
+  .copy { margin-left: auto; background: var(--accent); color: var(--card); border: 0; }
+  pre {
+    margin: 0;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 1rem;
+    border-radius: 0 6px 6px 6px;
+    overflow-x: auto;
+    font: 0.9rem/1.5 ui-monospace, Consolas, monospace;
+    min-height: 4rem;
+  }
+
+  @media (max-width: 560px) {
+    .sentence { font-size: 1.25rem; }
+    .row { grid-template-columns: 1fr 1fr; }
+    .row input { grid-column: 1 / 2; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mongo query builder for the stocks database</h1>
+
+  <p class="sentence">
+    Find <select id="collection" aria-label="Collection"></select>
+    that match <select id="match" aria-label="Match all or any">
+      <option value="all">all</option><option value="any">any</option>
+    </select> of these:
+  </p>
+
+  <div class="rows" id="rows"></div>
+  <button class="add" id="add" type="button">Add condition</button>
+
+  <p class="error" id="error" role="alert"></p>
+
+  <section class="output" aria-label="Generated query">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-out="mongosh" type="button">mongosh</button>
+      <button class="tab" role="tab" aria-selected="false" data-out="pymongo" type="button">Python</button>
+      <button class="copy" id="copy" type="button">Copy</button>
+    </div>
+    <pre id="code"></pre>
+  </section>
+</main>
+
+<script>
+  const HINTS = {
+    float: "a number, e.g. 20 or 0.02",
+    int: "a whole number, e.g. 5",
+    str: "text",
+    objectid: "not searchable yet",
+  };
+  let schema = null;
+  let result = null;
+  let shown = "mongosh";
+  let timer = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function option(value, label = value) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    return o;
+  }
+
+  function fieldsOf(collection) {
+    return schema.collections[collection];
+  }
+
+  function updateHint(row) {
+    const kind = fieldsOf($("collection").value)[row.field.value];
+    const op = row.op.value;
+    let hint = HINTS[kind] || "";
+    if (op === "one of") hint = "several values, comma-separated";
+    if (op === "exists") hint = "true or false (empty = true)";
+    row.value.placeholder = hint;
+    row.kind.textContent = `${row.field.value} is ${kind}; type null to match empty values`;
+  }
+
+  function addRow() {
+    const el = document.createElement("div");
+    el.className = "row";
+    const row = {
+      el,
+      field: document.createElement("select"),
+      op: document.createElement("select"),
+      value: document.createElement("input"),
+      kind: document.createElement("div"),
+    };
+    row.field.setAttribute("aria-label", "Field");
+    row.op.setAttribute("aria-label", "Operator");
+    row.value.setAttribute("aria-label", "Value");
+    row.kind.className = "kind";
+
+    for (const f of Object.keys(fieldsOf($("collection").value))) row.field.append(option(f));
+    for (const o of schema.operators) row.op.append(option(o));
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "remove";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => { el.remove(); rebuild(); });
+
+    row.field.addEventListener("change", () => { updateHint(row); rebuild(); });
+    row.op.addEventListener("change", () => { updateHint(row); rebuild(); });
+    row.value.addEventListener("input", rebuild);
+
+    el.append(row.field, row.op, row.value, remove, row.kind);
+    el.row = row;
+    $("rows").append(el);
+    updateHint(row);
+    row.value.focus();
+  }
+
+  function rows() {
+    return [...$("rows").children].map((el) => el.row);
+  }
+
+  function rebuild() {
+    clearTimeout(timer);
+    timer = setTimeout(build, 250);
+  }
+
+  async function build() {
+    const body = {
+      collection: $("collection").value,
+      match: $("match").value,
+      rows: rows()
+        .filter((r) => r.value.value.trim() !== "" || r.op.value === "exists")
+        .map((r) => ({ field: r.field.value, op: r.op.value, value: r.value.value })),
+    };
+    try {
+      const res = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        $("error").textContent = typeof data.detail === "string" ? data.detail : "The request was rejected. Check the values.";
+        return;
+      }
+      $("error").textContent = "";
+      result = data;
+      show();
+    } catch {
+      $("error").textContent = "Can't reach the server. Is the app running?";
+    }
+  }
+
+  function show() {
+    $("code").textContent = result ? result[shown] : "";
+  }
+
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", "false"));
+      tab.setAttribute("aria-selected", "true");
+      shown = tab.dataset.out;
+      show();
+    });
+  });
+
+  $("copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("code").textContent);
+      $("copy").textContent = "Copied";
+    } catch {
+      $("copy").textContent = "Select and copy by hand";
+    }
+    setTimeout(() => { $("copy").textContent = "Copy"; }, 1500);
+  });
+
+  $("collection").addEventListener("change", () => {
+    $("rows").replaceChildren();
+    addRow();
+    rebuild();
+  });
+  $("match").addEventListener("change", rebuild);
+  $("add").addEventListener("click", addRow);
+
+  (async () => {
+    try {
+      schema = await (await fetch("/api/schema")).json();
+    } catch {
+      $("error").textContent = "Can't load the list of collections. Is the app running?";
+      return;
+    }
+    for (const c of Object.keys(schema.collections)) $("collection").append(option(c));
+    $("collection").value = "quotes";
+    addRow();
+    build();
+  })();
+</script>
+</body>
+</html>

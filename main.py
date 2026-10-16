@@ -1,14 +1,18 @@
 """Web API around query.py. Run locally: uvicorn main:app --reload"""
 
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from query import OPERATORS, build_filter, to_mongosh, to_pymongo
 from schema import SCHEMA, collections
 
 app = FastAPI(title="Mongo query builder")
+
+PAGE = Path(__file__).parent / "static" / "index.html"
 
 
 class Row(BaseModel):
@@ -21,6 +25,12 @@ class BuildRequest(BaseModel):
     collection: str
     match: Literal["all", "any"] = "all"
     rows: list[Row]
+
+
+@app.get("/", include_in_schema=False)
+def page() -> FileResponse:
+    """The query builder page."""
+    return FileResponse(PAGE)
 
 
 @app.get("/healthz")
