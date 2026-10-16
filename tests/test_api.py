@@ -40,3 +40,10 @@ def test_bad_value_gives_400_with_reason():
 def test_bad_match_gives_422():
     r = client.post("/api/build", json={"collection": "quotes", "match": "some", "rows": []})
     assert r.status_code == 422
+
+
+def test_page_is_served():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "Mongo query builder" in r.text
