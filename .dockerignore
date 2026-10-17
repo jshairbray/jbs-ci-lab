@@ -1,0 +1,11 @@
+# Never send these to the image build
+.git
+.venv
+.github
+tests
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+*.in
+requirements-dev.txt
