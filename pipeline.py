@@ -7,19 +7,44 @@ from query import condition
 from schema import RELATIONS, SCHEMA
 
 
+def reverse_join(collection: str, join: str) -> tuple[str, str] | None:
+    """'quotes:company_id' from companies -> ("quotes", "company_id").
+
+    A reverse join brings in the documents of another collection that point HERE:
+    every quote whose company_id is this company's _id. Returns None for a normal join.
+    """
+    if ":" not in join:
+        return None
+    other, field = join.split(":", 1)
+    if other not in SCHEMA or field not in SCHEMA[other]:
+        raise ValueError(f"unknown join '{join}'")
+    if field not in RELATIONS or RELATIONS[field][0] != collection:
+        raise ValueError(f"{other}.{field} doesn't point to {collection}")
+    return other, field
+
+
+def _used(available: dict[str, str], alias: str) -> bool:
+    return any(p == alias or p.startswith(alias + ".") for p in available)
+
+
 def fields_after_joins(collection: str, joins: list[str]) -> dict[str, str]:
     """All field paths available after the joins, with their types.
 
     Example: quotes + ["company_id"] -> {"pe_ratio": "float", ..., "company.symbol": "str", ...}
+    Example: companies + ["quotes:company_id"] -> {..., "quotes.pe_ratio": "float", ...}
     """
     if collection not in SCHEMA:
         raise ValueError(f"unknown collection: {collection}")
     available = {f: kind for f, (kind, _) in SCHEMA[collection].items()}
-    for local in joins:
-        if local not in available:
-            raise ValueError(f"can't join on '{local}': no such field yet")
-        target, alias = join_target(local)
-        if any(p == alias or p.startswith(alias + ".") for p in available):
+    for join in joins:
+        rev = reverse_join(collection, join)
+        if rev:
+            target, alias = rev[0], rev[0]
+        else:
+            if join not in available:
+                raise ValueError(f"can't join on '{join}': no such field yet")
+            target, alias = join_target(join)
+        if _used(available, alias):
             raise ValueError(f"'{alias}' is already joined")
         for f, (kind, _) in SCHEMA[target].items():
             available[f"{alias}.{f}"] = kind
@@ -35,15 +60,19 @@ def join_target(local: str) -> tuple[str, str]:
 
 
 def joinable(collection: str, joins: list[str]) -> list[str]:
-    """Fields that could be joined next (the page offers these)."""
+    """Joins that could be added next (the page offers these)."""
     available = fields_after_joins(collection, joins)
     out = []
-    for path in available:
+    for path in available:  # normal joins: a field that points to another collection
         last = path.rsplit(".", 1)[-1]
-        if last in RELATIONS and path not in joins:
-            alias = RELATIONS[last][1]
-            if not any(p == alias or p.startswith(alias + ".") for p in available):
-                out.append(path)
+        if last not in RELATIONS or path in joins or RELATIONS[last][0] == collection:
+            continue  # not a link, already joined, or pointing back to where we started
+        if not _used(available, RELATIONS[last][1]):
+            out.append(path)
+    for other in sorted(SCHEMA):  # reverse joins: collections that point to this one
+        for field in SCHEMA[other]:
+            if RELATIONS.get(field, ("",))[0] == collection and not _used(available, other):
+                out.append(f"{other}:{field}")
     return out
 
 
@@ -51,12 +80,18 @@ def join_stages(collection: str, joins: list[str]) -> list[dict]:
     """$lookup + $unwind for each join, in order."""
     fields_after_joins(collection, joins)  # validates every join
     stages = []
-    for local in joins:
-        target, alias = join_target(local)
-        stages.append(
-            {"$lookup": {"from": target, "localField": local, "foreignField": "_id", "as": alias}}
-        )
-        # $lookup always returns a list; $unwind turns the one match into a plain sub-document
+    for join in joins:
+        rev = reverse_join(collection, join)
+        if rev:
+            other, field = rev
+            lookup = {"from": other, "localField": "_id", "foreignField": field, "as": other}
+            alias = other
+        else:
+            target, alias = join_target(join)
+            lookup = {"from": target, "localField": join, "foreignField": "_id", "as": alias}
+        stages.append({"$lookup": lookup})
+        # $lookup always returns a list. $unwind makes one document per item:
+        # one match for a normal join, possibly many for a reverse join.
         stages.append({"$unwind": {"path": f"${alias}", "preserveNullAndEmptyArrays": True}})
     return stages
 
