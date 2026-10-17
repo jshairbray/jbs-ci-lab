@@ -17,9 +17,36 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - name: Install dev tools (pinned, with hashes)
+      - name: Install app + dev tools (pinned, with hashes)
         run: pip install --require-hashes -r requirements.txt -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Test
         run: pytest -q
+
+  build:
+    needs: test          # only build if the tests passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t querybuilder:${{ github.sha }} .
+      - name: Start container
+        run: docker run -d --name app -p 8080:8080 querybuilder:${{ github.sha }}
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/healthz && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/healthz
+          curl -fsS http://localhost:8080/ | grep -q "Mongo query builder"
+          curl -fsS -X POST http://localhost:8080/api/build \
+            -H 'Content-Type: application/json' \
+            -d '{"collection":"quotes","rows":[{"field":"pe_ratio","op":"less than","value":"20"}]}'
+      - name: Runs as non-root user
+        run: test "$(docker exec app whoami)" = appuser
+      - name: Show container logs if something failed
+        if: failure()
+        run: docker logs app
