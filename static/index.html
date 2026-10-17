@@ -32,6 +32,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--paper);
@@ -39,15 +40,16 @@
     font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   main { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
-  h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 1.5rem; color: var(--muted); }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  h1 { font-size: 1.25rem; font-weight: 600; margin: 0; color: var(--muted); }
+
+  /* Find / Aggregate switch */
+  .mode { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .mode button { border: 0; border-radius: 0; background: transparent; color: var(--muted); }
+  .mode button[aria-pressed="true"] { background: var(--accent); color: var(--card); }
 
   /* The query reads as a sentence: this is the one bold element */
-  .sentence {
-    font-size: 1.6rem;
-    line-height: 1.6;
-    font-weight: 500;
-    margin: 0 0 1.25rem;
-  }
+  .sentence { font-size: 1.6rem; line-height: 1.6; font-weight: 500; margin: 0 0 1.25rem; }
   .sentence select {
     font: inherit;
     color: var(--accent);
@@ -58,7 +60,10 @@
     cursor: pointer;
   }
 
-  .rows { display: grid; gap: 0.5rem; margin-bottom: 0.75rem; }
+  h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 1.5rem 0 0.5rem; font-weight: 600; }
+  .note { font-size: 0.85rem; color: var(--muted); margin: -0.25rem 0 0.5rem; }
+
+  .rows { display: grid; gap: 0.5rem; margin-bottom: 0.5rem; }
   .row {
     display: grid;
     grid-template-columns: 1.3fr 1fr 1.3fr auto;
@@ -68,7 +73,8 @@
     border-radius: 6px;
     padding: 0.5rem;
   }
-  .row select, .row input {
+  .row.three { grid-template-columns: 1fr 1.6fr auto; }
+  select, input {
     font: inherit;
     color: var(--ink);
     background: var(--paper);
@@ -78,27 +84,28 @@
     min-width: 0;
   }
   .row .kind { font-size: 0.8rem; color: var(--muted); grid-column: 1 / -1; margin-top: -0.2rem; }
-  button {
-    font: inherit;
-    border-radius: 4px;
-    padding: 0.35rem 0.8rem;
-    cursor: pointer;
-  }
+  .inline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .inline select { flex: 1 1 12rem; }
+  #limit { width: 7rem; }
+
+  button { font: inherit; border-radius: 4px; padding: 0.35rem 0.8rem; cursor: pointer; }
   .remove { background: transparent; border: 1px solid var(--line); color: var(--muted); }
   .add { background: transparent; border: 1px dashed var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .error { color: var(--error); min-height: 1.5rem; margin: 0.75rem 0; }
-
-  .output { margin-top: 1rem; }
-  .tabs { display: flex; gap: 0.25rem; align-items: end; }
-  .tab {
-    background: transparent;
-    border: 1px solid transparent;
-    border-bottom: 0;
-    border-radius: 4px 4px 0 0;
-    color: var(--muted);
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: 0.1rem 0.3rem 0.1rem 0.7rem; font-size: 0.9rem;
   }
+  .chip button { border: 0; background: transparent; color: var(--muted); padding: 0 0.35rem; }
+
+  .error { color: var(--error); min-height: 1.5rem; margin: 1rem 0 0.75rem; }
+
+  .tabs { display: flex; gap: 0.25rem; align-items: end; }
+  .tab { background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: 4px 4px 0 0; color: var(--muted); }
   .tab[aria-selected="true"] { background: var(--code-bg); color: var(--code-ink); }
   .copy { margin-left: auto; background: var(--accent); color: var(--card); border: 0; }
   pre {
@@ -115,27 +122,73 @@
   @media (max-width: 560px) {
     .sentence { font-size: 1.25rem; }
     .row { grid-template-columns: 1fr 1fr; }
-    .row input { grid-column: 1 / 2; }
   }
 </style>
 </head>
 <body>
 <main>
-  <h1>Mongo query builder for the stocks database</h1>
+  <header>
+    <h1>Mongo query builder for the stocks database</h1>
+    <div class="mode" role="group" aria-label="Query type">
+      <button type="button" id="modeFind" aria-pressed="true">Find</button>
+      <button type="button" id="modeAgg" aria-pressed="false">Aggregate</button>
+    </div>
+  </header>
 
   <p class="sentence">
-    Find <select id="collection" aria-label="Collection"></select>
+    <span id="verb">Find</span> <select id="collection" aria-label="Collection"></select>
     that match <select id="match" aria-label="Match all or any">
       <option value="all">all</option><option value="any">any</option>
     </select> of these:
   </p>
 
+  <section id="joinsBox" hidden>
+    <h2>Join</h2>
+    <p class="note">Brings in the linked document, so its fields can be used below.</p>
+    <div class="chips" id="joinChips"></div>
+    <div class="inline">
+      <select id="joinSelect" aria-label="Field to join on"></select>
+      <button class="add" id="joinAdd" type="button">Join</button>
+    </div>
+  </section>
+
+  <h2 id="filterTitle" hidden>Filter</h2>
   <div class="rows" id="rows"></div>
   <button class="add" id="add" type="button">Add condition</button>
 
+  <section id="aggBox" hidden>
+    <h2>Group</h2>
+    <p class="note">Optional. Collapses the results into one line per group.</p>
+    <div class="inline">
+      <label for="groupBy">Group by</label>
+      <select id="groupBy"></select>
+    </div>
+    <div id="metricsBox" hidden>
+      <div class="rows" id="metrics" style="margin-top: 0.5rem"></div>
+      <button class="add" id="metricAdd" type="button">Add summary</button>
+    </div>
+
+    <h2>Sort</h2>
+    <div class="rows" id="sorts"></div>
+    <button class="add" id="sortAdd" type="button">Add sort</button>
+
+    <h2>Limit</h2>
+    <div class="inline">
+      <input id="limit" type="number" min="1" max="1000" placeholder="no limit" aria-label="Limit">
+    </div>
+
+    <h2>Show fields</h2>
+    <p class="note">Optional. Leave empty to show everything.</p>
+    <div class="chips" id="showChips"></div>
+    <div class="inline">
+      <select id="showSelect" aria-label="Field to show"></select>
+      <button class="add" id="showAdd" type="button">Show</button>
+    </div>
+  </section>
+
   <p class="error" id="error" role="alert"></p>
 
-  <section class="output" aria-label="Generated query">
+  <section aria-label="Generated query">
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-out="mongosh" type="button">mongosh</button>
       <button class="tab" role="tab" aria-selected="false" data-out="pymongo" type="button">Python</button>
@@ -152,26 +205,130 @@
     str: "text",
     objectid: "not searchable yet",
   };
+  const state = { mode: "find", joins: [], fields: {}, joinable: [], show: [] };
   let schema = null;
   let result = null;
   let shown = "mongosh";
   let timer = null;
 
   const $ = (id) => document.getElementById(id);
+  const make = (tag, props = {}) => Object.assign(document.createElement(tag), props);
 
   function option(value, label = value) {
-    const o = document.createElement("option");
-    o.value = value;
-    o.textContent = label;
-    return o;
+    return make("option", { value, textContent: label });
   }
 
-  function fieldsOf(collection) {
-    return schema.collections[collection];
+  // Refill a select, keeping the current choice if it still exists
+  function fill(select, values, empty) {
+    const keep = select.value;
+    select.replaceChildren();
+    if (empty !== undefined) select.append(option("", empty));
+    for (const v of values) select.append(option(v));
+    if ([...select.options].some((o) => o.value === keep)) select.value = keep;
   }
 
+  function removeButton(onClick, label = "Remove") {
+    const b = make("button", { type: "button", className: "remove", textContent: label });
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  // ---------- fields ----------
+  async function loadFields() {
+    const c = $("collection").value;
+    if (state.mode === "find") {
+      state.fields = schema.collections[c];
+      state.joinable = [];
+    } else {
+      const qs = new URLSearchParams({ collection: c });
+      state.joins.forEach((j) => qs.append("joins", j));
+      const res = await fetch(`/api/fields?${qs}`);
+      const data = await res.json();
+      if (!res.ok) {
+        $("error").textContent = data.detail || "Can't load fields.";
+        return;
+      }
+      state.fields = data.fields;
+      state.joinable = data.joinable;
+    }
+    refresh();
+  }
+
+  function metricRows() {
+    return [...$("metrics").children].map((el) => el.metric);
+  }
+
+  function metricName(m) {
+    return m.op.value === "count" ? "count" : `${m.op.value}_${m.field.value.replace(/\./g, "_")}`;
+  }
+
+  // "" = no grouping, "__all__" = one group for everything, otherwise a field name
+  function grouping() {
+    return state.mode === "aggregate" && $("groupBy").value !== "";
+  }
+
+  // After $group only the group key (_id) and the summaries exist
+  function outputFields() {
+    const metrics = metricRows();
+    if (!grouping() || metrics.length === 0) return state.fields;
+    const by = $("groupBy").value;
+    const out = { _id: by === "__all__" ? "null" : state.fields[by] };
+    for (const m of metrics) out[metricName(m)] = m.op.value === "count" ? "int" : "float";
+    return out;
+  }
+
+  function refresh() {
+    const names = Object.keys(state.fields);
+    for (const r of rows()) {
+      fill(r.field, names);
+      updateHint(r);
+    }
+
+    // joins: only the last one can be removed, because later joins may depend on earlier ones
+    $("joinChips").replaceChildren(
+      ...state.joins.map((j, i) => {
+        const chip = make("span", { className: "chip", textContent: j });
+        if (i === state.joins.length - 1) {
+          chip.append(removeButton(() => { state.joins.pop(); loadFields().then(rebuild); }, "×"));
+        }
+        return chip;
+      })
+    );
+    fill($("joinSelect"), state.joinable);
+    $("joinAdd").disabled = state.joinable.length === 0;
+
+    const g = $("groupBy");
+    const keepGroup = g.value;
+    g.replaceChildren(option("", "(no grouping)"), option("__all__", "(everything together)"), ...names.map((n) => option(n)));
+    if ([...g.options].some((o) => o.value === keepGroup)) g.value = keepGroup;
+    $("metricsBox").hidden = !grouping();
+    const numbers = names.filter((f) => ["int", "float"].includes(state.fields[f]));
+    for (const m of metricRows()) {
+      fill(m.field, numbers);
+      m.field.hidden = m.op.value === "count";
+    }
+    refreshOutput();
+  }
+
+  // Sort and Show depend on whether we group
+  function refreshOutput() {
+    const out = Object.keys(outputFields());
+    for (const s of [...$("sorts").children].map((el) => el.sort)) fill(s.field, out);
+    state.show = state.show.filter((f) => out.includes(f));
+    fill($("showSelect"), out.filter((f) => !state.show.includes(f)));
+    $("showAdd").disabled = $("showSelect").options.length === 0;
+    $("showChips").replaceChildren(
+      ...state.show.map((f) => {
+        const chip = make("span", { className: "chip", textContent: f });
+        chip.append(removeButton(() => { state.show = state.show.filter((x) => x !== f); refreshOutput(); rebuild(); }, "×"));
+        return chip;
+      })
+    );
+  }
+
+  // ---------- filter rows ----------
   function updateHint(row) {
-    const kind = fieldsOf($("collection").value)[row.field.value];
+    const kind = state.fields[row.field.value];
     const op = row.op.value;
     let hint = HINTS[kind] || "";
     if (op === "one of") hint = "several values, comma-separated";
@@ -181,34 +338,24 @@
   }
 
   function addRow() {
-    const el = document.createElement("div");
-    el.className = "row";
+    const el = make("div", { className: "row" });
     const row = {
-      el,
-      field: document.createElement("select"),
-      op: document.createElement("select"),
-      value: document.createElement("input"),
-      kind: document.createElement("div"),
+      field: make("select"),
+      op: make("select"),
+      value: make("input"),
+      kind: make("div", { className: "kind" }),
     };
     row.field.setAttribute("aria-label", "Field");
     row.op.setAttribute("aria-label", "Operator");
     row.value.setAttribute("aria-label", "Value");
-    row.kind.className = "kind";
-
-    for (const f of Object.keys(fieldsOf($("collection").value))) row.field.append(option(f));
-    for (const o of schema.operators) row.op.append(option(o));
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "remove";
-    remove.textContent = "Remove";
-    remove.addEventListener("click", () => { el.remove(); rebuild(); });
+    fill(row.field, Object.keys(state.fields));
+    fill(row.op, schema.operators);
 
     row.field.addEventListener("change", () => { updateHint(row); rebuild(); });
     row.op.addEventListener("change", () => { updateHint(row); rebuild(); });
     row.value.addEventListener("input", rebuild);
 
-    el.append(row.field, row.op, row.value, remove, row.kind);
+    el.append(row.field, row.op, row.value, removeButton(() => { el.remove(); rebuild(); }), row.kind);
     el.row = row;
     $("rows").append(el);
     updateHint(row);
@@ -219,21 +366,72 @@
     return [...$("rows").children].map((el) => el.row);
   }
 
+  // ---------- group, sort, show ----------
+  function addMetric() {
+    const el = make("div", { className: "row three" });
+    const m = { op: make("select"), field: make("select") };
+    m.op.setAttribute("aria-label", "Summary");
+    m.field.setAttribute("aria-label", "Field to summarize");
+    fill(m.op, schema.group_ops);
+    const numbers = Object.keys(state.fields).filter((f) => ["int", "float"].includes(state.fields[f]));
+    fill(m.field, numbers);
+    m.field.hidden = true; // first op is count
+    const changed = () => { m.field.hidden = m.op.value === "count"; refreshOutput(); rebuild(); };
+    m.op.addEventListener("change", changed);
+    m.field.addEventListener("change", changed);
+    el.append(m.op, m.field, removeButton(() => { el.remove(); refreshOutput(); rebuild(); }));
+    el.metric = m;
+    $("metrics").append(el);
+    refreshOutput();
+    rebuild();
+  }
+
+  function addSort() {
+    const el = make("div", { className: "row three" });
+    const s = { field: make("select"), direction: make("select") };
+    s.field.setAttribute("aria-label", "Sort by");
+    s.direction.setAttribute("aria-label", "Direction");
+    fill(s.field, Object.keys(outputFields()));
+    s.direction.append(option("desc", "highest first"), option("asc", "lowest first"));
+    s.field.addEventListener("change", rebuild);
+    s.direction.addEventListener("change", rebuild);
+    el.append(s.field, s.direction, removeButton(() => { el.remove(); rebuild(); }));
+    el.sort = s;
+    $("sorts").append(el);
+    rebuild();
+  }
+
+  // ---------- build ----------
   function rebuild() {
     clearTimeout(timer);
     timer = setTimeout(build, 250);
   }
 
+  function filterRows() {
+    return rows()
+      .filter((r) => r.value.value.trim() !== "" || r.op.value === "exists")
+      .map((r) => ({ field: r.field.value, op: r.op.value, value: r.value.value }));
+  }
+
+  function request() {
+    const base = { collection: $("collection").value, match: $("match").value, rows: filterRows() };
+    if (state.mode === "find") return ["/api/build", base];
+    const limit = $("limit").value.trim();
+    return ["/api/aggregate", {
+      ...base,
+      joins: state.joins,
+      group_by: grouping() && $("groupBy").value !== "__all__" ? $("groupBy").value : null,
+      metrics: !grouping() ? [] : metricRows().map((m) => ({ op: m.op.value, field: m.op.value === "count" ? null : m.field.value })),
+      sort: [...$("sorts").children].map((el) => ({ field: el.sort.field.value, direction: el.sort.direction.value })),
+      limit: limit === "" ? null : Number(limit),
+      project: state.show,
+    }];
+  }
+
   async function build() {
-    const body = {
-      collection: $("collection").value,
-      match: $("match").value,
-      rows: rows()
-        .filter((r) => r.value.value.trim() !== "" || r.op.value === "exists")
-        .map((r) => ({ field: r.field.value, op: r.op.value, value: r.value.value })),
-    };
+    const [url, body] = request();
     try {
-      const res = await fetch("/api/build", {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -255,6 +453,35 @@
     $("code").textContent = result ? result[shown] : "";
   }
 
+  // ---------- mode, collection ----------
+  async function setMode(mode) {
+    state.mode = mode;
+    $("modeFind").setAttribute("aria-pressed", String(mode === "find"));
+    $("modeAgg").setAttribute("aria-pressed", String(mode === "aggregate"));
+    const agg = mode === "aggregate";
+    $("verb").textContent = agg ? "Aggregate" : "Find";
+    $("joinsBox").hidden = !agg;
+    $("aggBox").hidden = !agg;
+    $("filterTitle").hidden = !agg;
+    if (!agg) state.joins = [];
+    await loadFields();
+    rebuild();
+  }
+
+  async function resetForCollection() {
+    state.joins = [];
+    state.show = [];
+    $("rows").replaceChildren();
+    $("metrics").replaceChildren();
+    $("sorts").replaceChildren();
+    $("limit").value = "";
+    $("groupBy").value = "";
+    await loadFields();
+    addRow();
+    rebuild();
+  }
+
+  // ---------- events ----------
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", "false"));
@@ -274,13 +501,32 @@
     setTimeout(() => { $("copy").textContent = "Copy"; }, 1500);
   });
 
-  $("collection").addEventListener("change", () => {
-    $("rows").replaceChildren();
-    addRow();
-    rebuild();
-  });
+  $("modeFind").addEventListener("click", () => setMode("find"));
+  $("modeAgg").addEventListener("click", () => setMode("aggregate"));
+  $("collection").addEventListener("change", resetForCollection);
   $("match").addEventListener("change", rebuild);
   $("add").addEventListener("click", addRow);
+  $("joinAdd").addEventListener("click", async () => {
+    if (!$("joinSelect").value) return;
+    state.joins.push($("joinSelect").value);
+    await loadFields();
+    rebuild();
+  });
+  $("groupBy").addEventListener("change", () => {
+    $("metricsBox").hidden = !grouping();
+    if (grouping() && metricRows().length === 0) addMetric(); // a group needs at least one summary; start with count
+    refreshOutput();
+    rebuild();
+  });
+  $("metricAdd").addEventListener("click", addMetric);
+  $("sortAdd").addEventListener("click", addSort);
+  $("limit").addEventListener("input", rebuild);
+  $("showAdd").addEventListener("click", () => {
+    if (!$("showSelect").value) return;
+    state.show.push($("showSelect").value);
+    refreshOutput();
+    rebuild();
+  });
 
   (async () => {
     try {
@@ -289,10 +535,9 @@
       $("error").textContent = "Can't load the list of collections. Is the app running?";
       return;
     }
-    for (const c of Object.keys(schema.collections)) $("collection").append(option(c));
+    fill($("collection"), Object.keys(schema.collections));
     $("collection").value = "quotes";
-    addRow();
-    build();
+    await resetForCollection();
   })();
 </script>
 </body>

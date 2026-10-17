@@ -94,3 +94,15 @@ def collections() -> list[str]:
 
 def fields(collection: str) -> list[str]:
     return list(SCHEMA[collection])
+
+
+# Links between collections: a field holding another collection's _id.
+# field name -> (collection it points to, name of the joined document)
+RELATIONS: dict[str, tuple[str, str]] = {
+    "company_id": ("companies", "company"),
+    "report_id": ("reports", "report"),
+    "sector_id": ("sectors", "sector"),
+    "industry_id": ("industries", "industry"),
+    "exchange_id": ("exchanges", "exchange"),
+    "group_id": ("groups", "group"),
+}
