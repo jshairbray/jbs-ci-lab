@@ -63,8 +63,8 @@ def page() -> FileResponse:
     return FileResponse(PAGE)
 
 
-@app.get("/healthz")
-def healthz() -> dict:
+@app.get("/health")
+def health() -> dict:
     """Cloud Run and CI call this to check the app is up."""
     return {"status": "ok"}
 
