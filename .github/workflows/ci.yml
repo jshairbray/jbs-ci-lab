@@ -72,3 +72,36 @@ jobs:
           docker tag querybuilder:${{ github.sha }} "$IMAGE"
           docker push "$IMAGE"
           echo "Pushed $IMAGE"
+
+  deploy:
+    needs: build         # only deploy an image that was built, tested and pushed
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write    # for WIF, like the build job
+    steps:
+      - name: Log in to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/868391218499/locations/global/workloadIdentityPools/github/providers/github
+          service_account: gh-ci-deployer@jbs-ci-lab.iam.gserviceaccount.com
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy querybuilder \
+            --image=us-east1-docker.pkg.dev/jbs-ci-lab/querybuilder/querybuilder:${{ github.sha }} \
+            --region=us-east1 \
+            --service-account=app-runtime@jbs-ci-lab.iam.gserviceaccount.com \
+            --project=jbs-ci-lab \
+            --quiet
+
+      - name: Smoke test the live service
+        run: |
+          URL=$(gcloud run services describe querybuilder --region=us-east1 --project=jbs-ci-lab --format='value(status.url)')
+          curl -fsS "$URL/healthz"
+          echo "Live at $URL"
